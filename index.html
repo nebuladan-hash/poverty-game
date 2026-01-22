@@ -69,13 +69,16 @@
         #victory-canvas { position: fixed; inset: 0; z-index: 1500; pointer-events: none; display: none; }
         #victory-text { position: fixed; top: 40%; left: 50%; transform: translate(-50%, -50%); z-index: 1600; font-size: 3rem; font-weight: 900; color: var(--gold); text-shadow: 0 0 20px #000, 0 0 40px var(--gold); display: none; pointer-events: none; text-align: center; width: 100%; animation: victoryBounce 1s infinite alternate; }
         @keyframes victoryBounce { from { transform: translate(-50%, -50%) scale(1); } to { transform: translate(-50%, -50%) scale(1.1); } }
+        
         #knock-animation { position: fixed; inset: 0; z-index: 2000; display: none; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; }
-        .fist-bounce { font-size: 150px; animation: fistHit 0.6s cubic-bezier(.17,.67,.83,.67); }
-        .knock-name { color: var(--gold); font-size: 2rem; font-weight: bold; text-shadow: 0 0 20px #000; margin-top: -20px; opacity: 0; animation: nameFade 0.6s forwards; }
+        .fist-bounce { font-size: 150px; animation: fistHit 0.6s cubic-bezier(.17,.67,.83,.67); pointer-events: none; }
+        .knock-name { color: var(--gold); font-size: 2.5rem; font-weight: bold; text-shadow: 0 0 20px #000; margin-top: -20px; opacity: 0; animation: nameFade 0.6s forwards; pointer-events: none; }
+        
         @keyframes nameFade { 0% { opacity: 0; transform: translateY(20px); } 100% { opacity: 1; transform: translateY(0); } }
         @keyframes fistHit { 0% { transform: scale(0) rotate(-20deg); opacity: 0; } 50% { transform: scale(1.5) rotate(0deg); opacity: 1; } 100% { transform: scale(1); opacity: 0; } }
         .shake { animation: shakeScreen 0.4s; }
         @keyframes shakeScreen { 0%, 100% { transform: translate(0, 0); } 25% { transform: translate(5px, 5px); } 50% { transform: translate(-5px, -5px); } 75% { transform: translate(5px, -5px); } }
+
         .menu-box { background: rgba(0, 0, 0, 0.7); padding: 30px; border-radius: 20px; border: 2px solid var(--gold); width: 85%; max-width: 350px; }
         .btn-main { background: linear-gradient(180deg, #FFD700 0%, #B8860B 100%); color: #000; padding: 12px 30px; border-radius: 40px; border: none; font-weight: bold; cursor: pointer; font-size: 1.1rem; margin: 8px; }
         input { padding: 12px; border-radius: 8px; border: 1px solid var(--gold); background: rgba(0,0,0,0.5); color: white; margin-bottom: 10px; width: calc(100% - 24px); }
@@ -89,10 +92,9 @@
         .coin-ui.lost { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.2); box-shadow: none; }
         .card-back { background: #b00; background-image: repeating-linear-gradient(45deg, #a00 0, #a00 10px, #c00 10px, #c00 20px); border: 4px solid white; }
         #turn-notice { color: var(--gold); font-weight: bold; font-size: 1.6rem; margin: 10px 0; height: 2rem; text-shadow: 0 0 10px rgba(255, 215, 0, 0.5); }
+        #chat-messages { flex: 1; overflow-y: auto; padding: 10px; text-align: left; font-size: 0.85rem; scroll-behavior: smooth; }
         #chat-container { width: 95%; max-width: 500px; margin: 10px auto; background: rgba(0,0,0,0.7); border-radius: 15px; border: 1px solid rgba(255,255,255,0.1); display: flex; flex-direction: column; overflow: hidden; height: 160px; }
         #chat-label { background: rgba(255,255,255,0.1); padding: 5px; font-size: 0.75rem; font-weight: bold; color: var(--gold); text-transform: uppercase; letter-spacing: 1px; }
-        #chat-messages { flex: 1; overflow-y: auto; padding: 10px; text-align: left; font-size: 0.85rem; scroll-behavior: smooth; }
-        #timer-display { font-size: 2.5rem; color: var(--red); font-weight: bold; margin: 10px 0; }
     </style>
 </head>
 <body id="game-body">
@@ -146,7 +148,9 @@
         </div>
         <div id="leaderboard"></div>
         <div id="turn-notice"></div>
+        
         <button id="drop-player-btn" onclick="dropActivePlayer()"></button>
+        
         <div id="dealer-controls" style="display: none;"><button class="btn-main" style="background:var(--green); color:white;" onclick="dealCards()">DEAL THE CARDS</button></div>
         
         <div id="gameplay-area">
@@ -184,12 +188,13 @@
         let lastKnocker = null; let lastMoveId = null;
         let rematchCountdown = null;
         let hasDisplayedFireworks = false;
+        let isAnimatingKnock = false; 
 
         setInterval(() => {
-            if (!currentLocalState) return;
+            if (!currentLocalState || isAnimatingKnock) return;
             const dropBtn = document.getElementById('drop-player-btn');
             if (currentLocalState.status === 'playing' || currentLocalState.status === 'knock_round') {
-                const elapsed = (Date.now() - currentLocalState.turnStartTime) / 1000;
+                const elapsed = (Date.now() - (currentLocalState.turnStartTime || Date.now())) / 1000;
                 if (elapsed > 30) {
                     dropBtn.style.display = 'block';
                     dropBtn.innerText = `DROP AFK PLAYER: ${currentLocalState.currentTurn.toUpperCase()}`;
@@ -208,7 +213,7 @@
                 await db.collection("games").doc(roomCode).set({
                     status: "waiting", players: {[myName]: {coins: 3, hand: [], eliminated: false, turnsTaken: 0, spectator: false, hasDecided: false}},
                     playerOrder: [myName], currentTurn: "", deck: createDeck(), discardPile: [], host: myName, currentDealer: myName, roundCount: 0, chat: [{user:"SYSTEM", text:`${myName} created the room.`}],
-                    lastMove: null, turnStartTime: Date.now()
+                    lastMove: null, turnStartTime: Date.now(), knocker: null
                 });
                 connectToFirebase();
             } catch (e) { alert("Error creating game."); }
@@ -240,10 +245,30 @@
             db.collection("games").doc(roomCode).onSnapshot(doc => { 
                 if (doc.exists) { 
                     currentLocalState = doc.data(); 
+                    handleKnockEvent(currentLocalState);
                     renderGame(currentLocalState);
                     checkLobbyExpiration(currentLocalState);
                 }
             });
+        }
+
+        function handleKnockEvent(state) {
+            if (state.knocker && state.knocker !== lastKnocker) {
+                lastKnocker = state.knocker;
+                isAnimatingKnock = true; 
+                const anim = document.getElementById('knock-animation');
+                document.getElementById('knock-player-name').innerText = state.knocker.toUpperCase() + " KNOCKED!";
+                requestAnimationFrame(() => {
+                    anim.style.display = 'flex';
+                    document.getElementById('game-body').classList.add('shake');
+                    setTimeout(() => { 
+                        anim.style.display = 'none'; 
+                        document.getElementById('game-body').classList.remove('shake');
+                        isAnimatingKnock = false; 
+                        renderGame(currentLocalState); 
+                    }, 1400);
+                });
+            } else if (!state.knocker) { lastKnocker = null; }
         }
 
         function triggerGameAlert(msg) {
@@ -253,36 +278,12 @@
         }
 
         function renderGame(state) {
-            if (state.lastMove && state.lastMove.id !== lastMoveId) {
-                lastMoveId = state.lastMove.id;
-                if (state.lastMove.player !== myName) {
-                    const srcStr = state.lastMove.type === 'drawDeck' ? 'the DECK' : 'the DISCARD PILE';
-                    triggerGameAlert(`${state.lastMove.player.toUpperCase()} DREW FROM ${srcStr}`);
-                }
-            }
-
-            if (state.knocker && state.knocker !== lastKnocker) {
-                const anim = document.getElementById('knock-animation');
-                document.getElementById('knock-player-name').innerText = state.knocker.toUpperCase() + " KNOCKED!";
-                anim.style.display = 'flex';
-                document.getElementById('game-body').classList.add('shake');
-                setTimeout(() => { anim.style.display = 'none'; document.getElementById('game-body').classList.remove('shake'); }, 1000);
-                lastKnocker = state.knocker;
-            } else if (!state.knocker) { lastKnocker = null; }
-
             const me = state.players[myName];
-            document.getElementById('gameplay-area').style.display = (me && !me.spectator && state.status !== "rematch_lobby") ? 'block' : 'none';
-            document.getElementById('spectator-msg').style.display = (me && me.spectator && state.status !== "rematch_lobby") ? 'block' : 'none';
-            
             const isMyTurn = (me && !me.spectator && state.currentTurn === myName && (state.status === 'playing' || state.status === 'knock_round'));
             document.getElementById('turn-notice').innerText = isMyTurn ? "★ YOUR TURN ★" : "";
-            
-            const chatBox = document.getElementById('chat-messages');
-            const shouldScroll = chatBox.scrollTop + chatBox.offsetHeight >= chatBox.scrollHeight - 20;
-            chatBox.innerHTML = (state.chat || []).map(m => `<p style="margin:2px 0; border-bottom:1px solid rgba(255,255,255,0.05); padding-bottom:2px;"><b>${m.user}:</b> ${m.text}</p>`).join('');
-            if (shouldScroll) { chatBox.scrollTop = chatBox.scrollHeight; }
 
-            const board = document.getElementById('leaderboard'); board.innerHTML = "";
+            const board = document.getElementById('leaderboard'); 
+            board.innerHTML = "";
             state.playerOrder.forEach(p => {
                 const d = state.players[p];
                 const box = document.createElement('div');
@@ -294,9 +295,27 @@
                     else for(let i=0; i<3; i++) coinsHTML += `<div class="coin-ui ${i >= d.coins ? 'lost' : ''}"></div>`;
                 } else if (d.spectator) { coinsHTML = `<div style="font-size:0.55rem; color:#aaa; margin-top:5px;">SPECTATOR</div>`; }
                 coinsHTML += '</div>';
-                box.innerHTML = `<div style="font-size:0.75rem; font-weight:bold; overflow:hidden; text-overflow:ellipsis;">${p.toUpperCase()}</div>${d.eliminated ? '<div style="font-size:0.6rem; color:red;">OUT</div>' : coinsHTML}`;
+                box.innerHTML = `<div style="font-size:0.75rem; font-weight:bold;">${p.toUpperCase()}</div>${d.eliminated ? '<div style="font-size:0.6rem; color:red;">OUT</div>' : coinsHTML}`;
                 board.appendChild(box);
             });
+
+            if (isAnimatingKnock) return; 
+
+            if (state.lastMove && state.lastMove.id !== lastMoveId) {
+                lastMoveId = state.lastMove.id;
+                if (state.lastMove.player !== myName) {
+                    const srcStr = state.lastMove.type === 'drawDeck' ? 'the DECK' : 'the DISCARD PILE';
+                    triggerGameAlert(`${state.lastMove.player.toUpperCase()} DREW FROM ${srcStr}`);
+                }
+            }
+
+            document.getElementById('gameplay-area').style.display = (me && !me.spectator && state.status !== "rematch_lobby") ? 'block' : 'none';
+            document.getElementById('spectator-msg').style.display = (me && me.spectator && state.status !== "rematch_lobby") ? 'block' : 'none';
+            
+            const chatBox = document.getElementById('chat-messages');
+            const shouldScroll = chatBox.scrollTop + chatBox.offsetHeight >= chatBox.scrollHeight - 20;
+            chatBox.innerHTML = (state.chat || []).map(m => `<p style="margin:2px 0;"><b>${m.user}:</b> ${m.text}</p>`).join('');
+            if (shouldScroll) { chatBox.scrollTop = chatBox.scrollHeight; }
 
             document.getElementById('dealer-controls').style.display = (state.status === "waiting" && state.currentDealer === myName) ? 'block' : 'none';
             document.getElementById('deck-count').innerText = (state.deck || []).length;
@@ -356,26 +375,15 @@
                     const docRef = db.collection("games").doc(roomCode), doc = await t.get(docRef), data = doc.data();
                     const pHand = data.players[target].hand || [];
                     data.deck.push(...pHand); data.deck.sort(() => Math.random() - 0.5);
-                    data.players[target].spectator = true; 
-                    data.players[target].hand = []; 
-                    data.players[target].coins = 0;
+                    data.players[target].spectator = true; data.players[target].hand = []; data.players[target].coins = 0;
                     data.chat.push({user:"SYSTEM", text:`🚫 ${target} was dropped for inactivity.`});
-
-                    // Check if only one player remains active
                     let stillIn = data.playerOrder.filter(p => !data.players[p].eliminated && !data.players[p].spectator);
-                    
                     if (stillIn.length === 1) {
-                        data.status = "game_over";
-                        data.lastRoundWinners = [stillIn[0]];
+                        data.status = "game_over"; data.lastRoundWinners = [stillIn[0]];
                         data.chat.push({user:"SYSTEM", text:`🏆 ${stillIn[0]} wins the game by default!`});
                     } else {
-                        if (data.status === "knock_round" && target === data.knocker) { 
-                            data.status = "showdown"; 
-                            finalize(data); 
-                        } else { 
-                            data.currentTurn = getNext(data); 
-                            data.turnStartTime = Date.now(); 
-                        }
+                        if (data.status === "knock_round" && target === data.knocker) { data.status = "showdown"; finalize(data); }
+                        else { data.currentTurn = getNext(data); data.turnStartTime = Date.now(); }
                     }
                     t.update(docRef, data);
                 });
@@ -431,11 +439,11 @@
         }
 
         async function executeFirebaseAction(action, payload) {
+            if (currentLocalState.currentTurn !== myName && action !== "drop") return;
             db.runTransaction(async t => {
                 const docRef = db.collection("games").doc(roomCode), doc = await t.get(docRef), data = doc.data();
                 const p = data.players[myName];
                 if (data.currentTurn !== myName || p.spectator) return;
-                
                 if (action === 'drawDeck' || action === 'drawDiscard') {
                     if (p.hand.length >= 4) return;
                     data.lastMove = { player: myName, type: action, id: Date.now() };
@@ -456,17 +464,18 @@
                 } else if (action === "knock") {
                     data.status = "knock_round"; data.knocker = myName; 
                     data.chat.push({user:"SYSTEM", text:`👊 ${myName} KNOCKED!`});
-                    data.currentTurn = getNext(data); data.turnStartTime = Date.now();
+                    // FIX: Explicitly advance turn and reset timer for next person
+                    data.currentTurn = getNext(data); 
+                    data.turnStartTime = Date.now(); 
                 }
                 t.update(docRef, data);
-            });
+            }).catch(e => console.error("Write error:", e));
         }
 
         function calculateScore(h) { if (!h) return 0; let s = {'H':0,'D':0,'S':0,'C':0}; h.forEach(c => { let v = (c.value === 'A') ? 11 : (['K','Q','J','10'].includes(c.value) ? 10 : parseInt(c.value)); s[c.suit] += v; }); return Math.max(s.H, s.D, s.S, s.C); }
         function createDeck() { const s = ['H','D','S','C'], v = ['2','3','4','5','6','7','8','9','10','J','Q','K','A'], d = []; s.forEach(suit => v.forEach(value => d.push({suit, value}))); return d.sort(() => Math.random() - 0.5); }
         function renderCardHTML(c) { if (!c) return '<div class="card card-back"></div>'; const sym = {'H':'♥','D':'♦','S':'♠','C':'♣'}[c.suit], face = ['J','Q','K'].includes(c.value) ? (c.value==='J'?'🤵🏼':c.value==='Q'?'👸🏼':'🤴🏼') : `<span class="suit-large">${sym}</span>`; return `<div class="card ${c.suit==='H'||c.suit==='D'?'red':''}"><div class="index-tl"><span class="val">${c.value}</span><span class="suit-mini">${sym}</span></div><div class="center-graphic">${face}</div><div class="index-br"><span class="val">${c.value}</span><span class="suit-mini">${sym}</span></div></div>`; }
         function getNext(d) { let a = d.playerOrder.filter(p => !d.players[p].eliminated && !d.players[p].spectator); return a[(a.indexOf(d.currentTurn) + 1) % a.length]; }
-        
         function finalize(d) {
             let s = {}, min = 32, max = -1, a = d.playerOrder.filter(p => !d.players[p].eliminated && !d.players[p].spectator);
             a.forEach(p => { let sc = calculateScore(d.players[p].hand); s[p] = sc; min = Math.min(min, sc); max = Math.max(sc, max); });
@@ -577,5 +586,7 @@
             }
         }
     </script>
+</body>
+</html>
 </body>
 </html>
