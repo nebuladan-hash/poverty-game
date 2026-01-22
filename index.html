@@ -92,9 +92,11 @@
         .coin-ui.lost { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.2); box-shadow: none; }
         .card-back { background: #b00; background-image: repeating-linear-gradient(45deg, #a00 0, #a00 10px, #c00 10px, #c00 20px); border: 4px solid white; }
         #turn-notice { color: var(--gold); font-weight: bold; font-size: 1.6rem; margin: 10px 0; height: 2rem; text-shadow: 0 0 10px rgba(255, 215, 0, 0.5); }
+        
+        #chat-container { width: 95%; max-width: 500px; margin: 10px auto; background: rgba(0,0,0,0.85); border-radius: 15px; border: 1px solid rgba(255,215,0,0.3); display: flex; flex-direction: column; overflow: hidden; height: 200px; }
+        #chat-label { background: rgba(255,215,0,0.1); padding: 5px; font-size: 0.75rem; font-weight: bold; color: var(--gold); text-transform: uppercase; letter-spacing: 1px; }
         #chat-messages { flex: 1; overflow-y: auto; padding: 10px; text-align: left; font-size: 0.85rem; scroll-behavior: smooth; }
-        #chat-container { width: 95%; max-width: 500px; margin: 10px auto; background: rgba(0,0,0,0.7); border-radius: 15px; border: 1px solid rgba(255,255,255,0.1); display: flex; flex-direction: column; overflow: hidden; height: 160px; }
-        #chat-label { background: rgba(255,255,255,0.1); padding: 5px; font-size: 0.75rem; font-weight: bold; color: var(--gold); text-transform: uppercase; letter-spacing: 1px; }
+        #chat-messages b { color: var(--gold); }
     </style>
 </head>
 <body id="game-body">
@@ -464,7 +466,6 @@
                 } else if (action === "knock") {
                     data.status = "knock_round"; data.knocker = myName; 
                     data.chat.push({user:"SYSTEM", text:`👊 ${myName} KNOCKED!`});
-                    // FIX: Explicitly advance turn and reset timer for next person
                     data.currentTurn = getNext(data); 
                     data.turnStartTime = Date.now(); 
                 }
@@ -476,25 +477,67 @@
         function createDeck() { const s = ['H','D','S','C'], v = ['2','3','4','5','6','7','8','9','10','J','Q','K','A'], d = []; s.forEach(suit => v.forEach(value => d.push({suit, value}))); return d.sort(() => Math.random() - 0.5); }
         function renderCardHTML(c) { if (!c) return '<div class="card card-back"></div>'; const sym = {'H':'♥','D':'♦','S':'♠','C':'♣'}[c.suit], face = ['J','Q','K'].includes(c.value) ? (c.value==='J'?'🤵🏼':c.value==='Q'?'👸🏼':'🤴🏼') : `<span class="suit-large">${sym}</span>`; return `<div class="card ${c.suit==='H'||c.suit==='D'?'red':''}"><div class="index-tl"><span class="val">${c.value}</span><span class="suit-mini">${sym}</span></div><div class="center-graphic">${face}</div><div class="index-br"><span class="val">${c.value}</span><span class="suit-mini">${sym}</span></div></div>`; }
         function getNext(d) { let a = d.playerOrder.filter(p => !d.players[p].eliminated && !d.players[p].spectator); return a[(a.indexOf(d.currentTurn) + 1) % a.length]; }
+        
         function finalize(d) {
             let s = {}, min = 32, max = -1, a = d.playerOrder.filter(p => !d.players[p].eliminated && !d.players[p].spectator);
             a.forEach(p => { let sc = calculateScore(d.players[p].hand); s[p] = sc; min = Math.min(min, sc); max = Math.max(sc, max); });
             const hit31 = a.some(p => s[p] === 31);
+            
+            // --- GENERATE CHAT SUMMARY ---
+            let roundLog = "--- ROUND SUMMARY ---\n";
+            a.forEach(p => {
+                let status = "";
+                if(s[p] === max) status = " [WINNER]";
+                if(s[p] === min) status = " [LOSER]";
+                roundLog += `${p.toUpperCase()}: ${s[p]} PTS${status}\n`;
+            });
+
             a.forEach(p => {
                 let coinsToLose = 0;
                 if (hit31) { if (s[p] < 31) coinsToLose = 1; }
                 else { if (s[p] === min) coinsToLose = (p === d.knocker) ? 2 : 1; }
+                
                 if (coinsToLose > 0) {
                     const currentCoins = d.players[p].coins;
-                    if (p === d.knocker && s[p] === min) { if (currentCoins <= 1) { d.players[p].eliminated = true; d.chat.push({user:"SYSTEM", text:`💀 ${p} knocked, lost, and is eliminated!`}); } else { d.players[p].coins -= 2; if(d.players[p].coins === 0) d.chat.push({user:"SYSTEM", text:`💰 ${p} is ON POVERTY!`}); } }
-                    else { if (currentCoins === 0) { d.players[p].eliminated = true; d.chat.push({user:"SYSTEM", text:`💀 ${p} lost on Poverty and is OUT!`}); } else { d.players[p].coins = Math.max(0, currentCoins - coinsToLose); if (d.players[p].coins === 0) d.chat.push({user:"SYSTEM", text:`💰 ${p} is ON POVERTY!`}); } }
+                    let coinMsg = `(Lost ${coinsToLose} Coin${coinsToLose > 1 ? 's' : ''})`;
+                    
+                    if (p === d.knocker && s[p] === min) { 
+                        if (currentCoins <= 1) { 
+                            d.players[p].eliminated = true; 
+                            d.chat.push({user:"SYSTEM", text:`💀 ${p} knocked, lost, and is ELIMINATED!`}); 
+                        } else { 
+                            d.players[p].coins -= 2; 
+                            if(d.players[p].coins === 0) d.chat.push({user:"SYSTEM", text:`💰 ${p} is now ON POVERTY!`}); 
+                        } 
+                    } else { 
+                        if (currentCoins === 0) { 
+                            d.players[p].eliminated = true; 
+                            d.chat.push({user:"SYSTEM", text:`💀 ${p} lost while on Poverty and is OUT!`}); 
+                        } else { 
+                            d.players[p].coins = Math.max(0, currentCoins - coinsToLose); 
+                            if (d.players[p].coins === 0) d.chat.push({user:"SYSTEM", text:`💰 ${p} is now ON POVERTY!`}); 
+                        } 
+                    }
+                    roundLog += `➤ ${p.toUpperCase()} ${coinMsg}\n`;
                 }
             });
-            d.lastRoundWinners = a.filter(p => s[p] === max); d.lastRoundLosers = a.filter(p => s[p] === min);
+
+            d.chat.push({user:"SYSTEM", text: roundLog.trim()});
+            d.lastRoundWinners = a.filter(p => s[p] === max); 
+            d.lastRoundLosers = a.filter(p => s[p] === min);
             d.highScore = max; d.lowScore = min;
+            
             let stillIn = d.playerOrder.filter(p => !d.players[p].eliminated && !d.players[p].spectator);
-            if (stillIn.length === 1) { d.status = "game_over"; d.lastRoundWinners = [stillIn[0]]; d.chat.push({user:"SYSTEM", text:`🏆 ${stillIn[0]} won the game!`}); return; }
-            let nD; for(let i=1; i<=d.playerOrder.length; i++) { let c = d.playerOrder[(d.playerOrder.indexOf(d.currentDealer)+i)%d.playerOrder.length]; if(!d.players[c].eliminated && !d.players[c].spectator) { nD = c; break; } }
+            if (stillIn.length === 1) { 
+                d.status = "game_over"; 
+                d.lastRoundWinners = [stillIn[0]]; 
+                d.chat.push({user:"SYSTEM", text:`🏆 ${stillIn[0]} won the game!`}); 
+                return; 
+            }
+            let nD; for(let i=1; i<=d.playerOrder.length; i++) { 
+                let c = d.playerOrder[(d.playerOrder.indexOf(d.currentDealer)+i)%d.playerOrder.length]; 
+                if(!d.players[c].eliminated && !d.players[c].spectator) { nD = c; break; } 
+            }
             d.currentDealer = nD;
         }
 
@@ -586,7 +629,5 @@
             }
         }
     </script>
-</body>
-</html>
 </body>
 </html>
